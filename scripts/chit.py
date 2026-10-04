@@ -97,7 +97,9 @@ def execute(dest: Path, cmd: list[str], timeout: int) -> dict:
     try:
         proc = run(cmd, dest, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return {"exit": None, "timed_out": True, "sha256": None, "tail": []}
+        return {"exit": None, "timed_out": True, "sha256": None, "tail": ["timeout"]}
+    except OSError as exc:
+        return {"exit": None, "timed_out": False, "sha256": None, "tail": [f"ENV_FAIL: {exc.strerror or exc}"]}
     combined = (proc.stdout or "") + (("\n" + proc.stderr) if proc.stderr else "")
     lines = combined.splitlines()
     return {
@@ -106,6 +108,14 @@ def execute(dest: Path, cmd: list[str], timeout: int) -> dict:
         "sha256": digest(combined),
         "tail": lines[-15:],
     }
+
+
+def cause_of(red: dict) -> str:
+    return " | ".join(red.get("tail") or [])[-240:]
+
+
+def command_files(cmd: list[str], files: list[str]) -> list[str]:
+    return [arg for arg in cmd if arg in files]
 
 
 def redgreen(repo: Path, label: str, cmd: list[str], timeout: int) -> tuple[dict, int]:
@@ -123,9 +133,10 @@ def redgreen(repo: Path, label: str, cmd: list[str], timeout: int) -> tuple[dict
     code = [f for f in files if f not in tests]
     if not code:
         return {"verdict": "REFUSED", "reason": "diff has tests only; nothing to fix"}, 1
-    overlap = [f for f in tests if f in code]
-    if overlap:
-        return {"verdict": "REFUSED", "reason": f"test and fix in the same file: {overlap[0]}"}, 1
+    ran = command_files(cmd, files)
+    same = [path for path in ran if path in code]
+    if same:
+        return {"verdict": "REFUSED", "reason": f"test and fix in the same file: {same[0]}"}, 1
 
     parent = Path(tempfile.mkdtemp(prefix="chit-"))
     work = parent / "wt"
@@ -146,7 +157,9 @@ def redgreen(repo: Path, label: str, cmd: list[str], timeout: int) -> tuple[dict
         p = repo / rel
         file_hashes.append({"path": rel, "sha256": sha256_file(p) if p.exists() else None, "role": "test" if rel in tests else "code"})
 
-    if red.get("exit") in (0, None):
+    if red.get("exit") is None or green.get("exit") is None:
+        verdict = "ENV_FAIL"
+    elif red.get("exit") in (0,):
         verdict = "DOES_NOT_BITE"
     elif green.get("exit") != 0 and red.get("sha256") == green.get("sha256"):
         verdict = "ENV_FAIL"
@@ -154,7 +167,7 @@ def redgreen(repo: Path, label: str, cmd: list[str], timeout: int) -> tuple[dict
         verdict = "STILL_RED"
     else:
         verdict = "BITES"
-    cause = " | ".join(red.get("tail") or [])[-240:]
+    cause = cause_of(red)
     ask_path = repo / ".chit" / "ask.json"
     oracle = ""
     if ask_path.exists():
@@ -208,8 +221,22 @@ def verify(repo: Path, receipt_path: Path, timeout: int) -> tuple[dict, int]:
         run(["git", "worktree", "remove", "--force", str(work)], repo)
         shutil.rmtree(parent, ignore_errors=True)
     bites = red.get("exit") not in (0, None) and green.get("exit") == 0
-    out = {"verdict": "CONFIRMED" if bites else "REJECTED", "red_exit": red.get("exit"), "green_exit": green.get("exit"), "base": base}
-    return out, 0 if bites else 1
+    cause = cause_of(red)
+    ask_path = repo / ".chit" / "ask.json"
+    oracle = ""
+    if ask_path.exists():
+        oracle = json.loads(ask_path.read_text(encoding="utf-8")).get("oracle") or ""
+    oracle_ok = (not oracle) or (oracle in cause)
+    confirmed = bites and oracle_ok
+    out = {
+        "verdict": "CONFIRMED" if confirmed else "REJECTED",
+        "red_exit": red.get("exit"),
+        "green_exit": green.get("exit"),
+        "base": base,
+        "cause": cause,
+        "oracle_ok": oracle_ok,
+    }
+    return out, 0 if confirmed else 1
 
 
 def start(repo: Path, label: str, locked: str, tier: str, nongol: str, test: str, rollback: str, oracle: str) -> tuple[dict, int]:
@@ -268,7 +295,13 @@ def next_step(repo: Path, label: str) -> tuple[dict, int]:
         return {"do": f"{script} close --repo . --label {label}", "why": "falta o relatorio"}, 1
     text = report.read_text(encoding="utf-8")
     if "ENTREGUE" in text and "NAO_ENTREGUE" not in text:
-        return {"do": "handoff", "why": "entregue", "report": str(report)}, 0
+        verified, _ = verify(repo, receipt, timeout=180)
+        if verified.get("verdict") == "CONFIRMED" and verified.get("oracle_ok"):
+            return {"do": "handoff", "why": "entregue", "report": str(report)}, 0
+        return {
+            "do": f"{script} redgreen --repo . --label {label} -- {ask.get('test')}",
+            "why": "recibo ou pagina nao bate com a mordida reexecutada",
+        }, 1
     return {"do": f"{script} close --repo . --label {label}", "why": "relatorio nao entregue, rode close de novo depois do conserto"}, 1
 
 
@@ -299,7 +332,7 @@ def close(repo: Path, label: str, timeout: int) -> tuple[dict, int]:
     gates = {
         "escopo": "PASS" if ask.get("locked") and ask.get("nongoal") else "FAIL",
         "risco": "FAIL" if tier == "T2" and not ask.get("rollback") else "PASS",
-        "mordida": "PASS" if tier == "T0" or (proof.get("verdict") == "BITES" and (not ask.get("oracle") or ask.get("oracle") in (proof.get("cause") or ""))) else "FAIL",
+        "mordida": "PASS" if tier == "T0" or (verified.get("verdict") == "CONFIRMED" and verified.get("oracle_ok")) else "FAIL",
         "replay": "PASS" if tier == "T0" or verified.get("verdict") == "CONFIRMED" else "FAIL",
         "higiene": "FAIL" if smell_fail else "PASS",
     }
@@ -313,12 +346,12 @@ def close(repo: Path, label: str, timeout: int) -> tuple[dict, int]:
         "verify": verified,
         "command": proof.get("command"),
         "base": proof.get("base"),
-        "red_exit": (proof.get("red") or {}).get("exit"),
-        "green_exit": (proof.get("green") or {}).get("exit"),
+        "red_exit": verified.get("red_exit"),
+        "green_exit": verified.get("green_exit"),
         "files": [f.get("path") for f in proof.get("files") or []],
         "smells": smell_text,
         "rollback": ask.get("rollback") or "n/a",
-        "cause": proof.get("cause") or "",
+        "cause": verified.get("cause") or "",
     }
     html = render_html(report)
     md = render_md(report)

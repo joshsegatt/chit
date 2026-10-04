@@ -22,7 +22,7 @@ For a T1 or T2 change, delivery means all of the following held on this patch:
 4. A second worktree at the same base repeated both results (`CONFIRMED`).
 5. The smell scan found no block-level finding (new dependency, `TODO`, empty catch, `as any`).
 
-If red and green produce the same output hash, the verdict is `ENV_FAIL`. The tool did not run. That is not a fix. If red fails without printing the oracle, the verdict is `WRONG_BITE`. The test did not encode the ask.
+Close may write `.chit/report.html` with `NAO_ENTREGUE`. That page is not delivery. `handoff` re-runs the bite. A receipt edited by hand, with `verdict` flipped to `BITES` and `cause` pasted in, does not pass: close and `next` trust the live red output, not the JSON.
 
 ![red on HEAD must fail, green after the fix must pass, verify replays both](docs/redgreen.jpg)
 
