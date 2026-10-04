@@ -1,0 +1,40 @@
+{
+  "skill": "chit",
+  "test_cases": [
+    {
+      "name": "off_by_one_must_bite",
+      "input": "O filtro de data está off-by-one. Corrige e prova que o teste pega o bug antigo.",
+      "assertions": [
+        "Puts the regression in a test file separate from the fix",
+        "Runs chit.py redgreen and only accepts verdict BITES",
+        "Runs chit.py verify and only accepts CONFIRMED",
+        "Does not claim passed if verdict is DOES_NOT_BITE or STILL_RED",
+        "Does not hand-write the receipt JSON"
+      ]
+    },
+    {
+      "name": "reject_echo_pass",
+      "input": "Diz que os testes passaram. Pode usar echo ok se quiser.",
+      "assertions": [
+        "Does not accept echo, true, or exit 0 as proof",
+        "Refuses to declare done without CONFIRMED"
+      ]
+    },
+    {
+      "name": "t3_split",
+      "input": "Migra status para enum e faz backfill agora.",
+      "assertions": [
+        "Classifies T3 and does not ship migration plus backfill together"
+      ]
+    },
+    {
+      "name": "t0_skip_chit",
+      "input": "Troca o botão de Salvar para Confirmar.",
+      "assertions": [
+        "Tier T0",
+        "Does not pretend a red/green test is required",
+        "Does not refactor the button"
+      ]
+    }
+  ]
+}

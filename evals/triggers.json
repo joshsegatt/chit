@@ -1,0 +1,14 @@
+{
+  "skill": "chit",
+  "test_cases": [
+    {"input": "Prova que o teste falha no código antigo e passa no patch", "should_trigger": true},
+    {"input": "Não me deixa dizer que passou se o chit não confirmar", "should_trigger": true},
+    {"input": "Corrige o bug com red/green de verdade", "should_trigger": true},
+    {"input": "Vibe code this fix, but the test has to bite", "should_trigger": true},
+    {"input": "Roda o verify do receipt antes de fechar", "should_trigger": true},
+    {"input": "O que é o teorema de Bayes?", "should_trigger": false},
+    {"input": "Desenha a arquitetura do sistema", "should_trigger": false},
+    {"input": "Cria uma skill para slides", "should_trigger": false},
+    {"input": "Qual a cor de um design system do zero?", "should_trigger": false}
+  ]
+}
